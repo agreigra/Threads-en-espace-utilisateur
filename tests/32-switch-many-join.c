@@ -1,0 +1,84 @@
+#ifndef USE_PTHREAD
+  #include "../thread.h"
+#else
+  #define _GNU_SOURCE
+  #include <pthread.h>
+#endif
+#include <stdio.h>
+#include <assert.h>
+#include <stdlib.h>
+#include <sys/time.h>
+
+/* test de plein de switch pendant que N-1 threads sont bloqués dans join
+ *
+ * la durée du programme doit etre proportionnelle au nombre de threads et de yields donnés en argument
+ *
+ * support nécessaire:
+ * - thread_create()
+ * - thread_yield() depuis ou vers le main
+ * - retour sans thread_exit()
+ * - thread_join() avec récupération de la valeur de retour
+ */
+
+static int nbyield;
+
+static void * thfunc(void *_nbth)
+{
+  unsigned long nbth = (unsigned long) _nbth;
+  if ((unsigned long) nbth > 0) {
+    #ifndef USE_PTHREAD
+      thread_t th;
+    #else
+      pthread_t th;
+    #endif
+    int err;
+    void *res;
+    #ifndef USE_PTHREAD
+      err = thread_create(&th, thfunc, _nbth-1);
+    #else
+      err = pthread_create(&th, NULL, thfunc, _nbth-1);
+    #endif
+    assert(!err);
+    #ifndef USE_PTHREAD
+      err = thread_join(th, &res);
+    #else
+      err = pthread_join(th, &res);
+    #endif
+    assert(!err);
+    assert(res == _nbth-1);
+  } else {
+    int i;
+    struct timeval tv1, tv2;
+    unsigned long us;
+    gettimeofday(&tv1, NULL);
+    for(i=0; i<nbyield; i++){
+      #ifndef USE_PTHREAD
+        thread_yield();
+      #else
+        pthread_yield();
+      #endif
+    }
+    gettimeofday(&tv2, NULL);
+    us = (tv2.tv_sec-tv1.tv_sec)*1000000+(tv2.tv_usec-tv1.tv_usec);
+    printf("%d yield avec plein de threads dans join: %ld us\n",nbyield, us);
+  }
+  return _nbth;
+}
+
+int main(int argc, char *argv[])
+{
+  unsigned long nbth;
+
+  if (argc < 3) {
+    printf("arguments manquants: nombre de threads, puis nombre de yield\n");
+    return -1;
+  }
+
+  nbth = atoi(argv[1]);
+  nbyield = atoi(argv[2]);
+
+  thfunc((void*) nbth);
+
+  printf("%ld threads créés et détruits\n", nbth);
+  return 0;
+}
